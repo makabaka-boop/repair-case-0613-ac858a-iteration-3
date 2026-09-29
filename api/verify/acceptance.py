@@ -60,6 +60,49 @@ def replay(a, b, rows):
     return out
 
 
+def constrained_oracle(a, b, limit):
+    """短序列枚举所有合法脚本，返回 None 或 (最短编辑步数, 规范操作序列)。"""
+    scripts = []
+    current = []
+    priority = {"delete": 0, "insert": 1, "keep": 2}
+
+    def dfs(x, y, run):
+        if x == len(a) and y == len(b):
+            scripts.append(list(current))
+            return
+        if x < len(a) and y < len(b) and a[x] == b[y]:
+            current.append("keep")
+            dfs(x + 1, y + 1, 0)
+            current.pop()
+        if y < len(b):
+            current.append("insert")
+            dfs(x, y + 1, 0)
+            current.pop()
+        if x < len(a) and run < limit:
+            current.append("delete")
+            dfs(x + 1, y, run + 1)
+            current.pop()
+
+    dfs(0, 0, 0)
+    if not scripts:
+        return None
+    cost = lambda script: sum(op != "keep" for op in script)
+    minimum = min(cost(script) for script in scripts)
+    canonical = min(
+        (script for script in scripts if cost(script) == minimum),
+        key=lambda script: tuple(priority[op] for op in reversed(script)),
+    )
+    return minimum, canonical
+
+
+def delete_runs(rows):
+    best = current = 0
+    for row in rows:
+        current = current + 1 if row["type"] == "delete" else 0
+        best = max(best, current)
+    return best
+
+
 def split_blocks(rows, n, m):
     """与 app/blocks.py 同规则的独立参照实现：连续非 keep 行归一块。"""
     blocks = []
@@ -222,6 +265,65 @@ def main() -> int:
         adjacent_ok = False
     check("相邻改写块边界稳定且可逐块批准", adjacent_ok)
 
+    # 4d. 最大连续删除：插入打断、完全删除无解、重复镜头与枚举预言机。
+    status, data = request(
+        "POST",
+        f"{API_URL}/diff",
+        {"source": [1, 2, 3, 4], "target": [1], "max_consecutive_deletes": 2},
+    )
+    constrained_case_ok = (
+        status == 200
+        and data.get("max_consecutive_deletes") == 2
+        and data["distance"] == 5
+        and [r["type"] for r in data["alignment"]]
+        == ["delete", "delete", "insert", "delete", "delete"]
+        and delete_runs(data["alignment"]) <= 2
+        and replay([1, 2, 3, 4], [1], data["alignment"]) == [1]
+    )
+    check("连续删除上限迫使插入打断且响应保持同一版本", constrained_case_ok, str(data)[:300])
+
+    status, data = request(
+        "POST",
+        f"{API_URL}/diff",
+        {"source": [1, 2, 3], "target": [], "max_consecutive_deletes": 2},
+    )
+    check(
+        "完全删除无解返回 CONSTRAINED_DIFF_INFEASIBLE",
+        status == 422 and data["detail"]["code"] == "CONSTRAINED_DIFF_INFEASIBLE",
+        str(data)[:200],
+    )
+
+    rng = random.Random(292929)
+    oracle_ok = True
+    for _ in range(40):
+        limit = rng.choice((1, 2, 3))
+        n, m = rng.randint(0, 7), rng.randint(0, 7)
+        a = [rng.randint(0, 3) for _ in range(n)]
+        b = [rng.randint(0, 3) for _ in range(m)]
+        status, data = request(
+            "POST",
+            f"{API_URL}/diff",
+            {"source": a, "target": b, "max_consecutive_deletes": limit},
+        )
+        expected = constrained_oracle(a, b, limit)
+        if expected is None:
+            if status != 422 or data["detail"]["code"] != "CONSTRAINED_DIFF_INFEASIBLE":
+                oracle_ok = False
+                break
+            continue
+        distance, ops = expected
+        if (
+            status != 200
+            or data["distance"] != distance
+            or [r["type"] for r in data["alignment"]] != ops
+            or delete_runs(data["alignment"]) > limit
+            or replay(a, b, data["alignment"]) != b
+        ):
+            oracle_ok = False
+            print("   预言机不一致：", a, b, limit, status, data)
+            break
+    check("约束模式对短序列枚举预言机：最短性、同优裁决、无解", oracle_ok)
+
     # 5. INVALID_INPUT
     bad_payloads = [
         {"source": [1, 2.5], "target": []},
@@ -230,6 +332,9 @@ def main() -> int:
         {"source": [-1], "target": []},
         {"source": [2_147_483_648], "target": []},
         {"source": [0] * 20_001, "target": []},
+        {"source": [0] * 301, "target": [], "max_consecutive_deletes": 3},
+        {"source": [], "target": [], "max_consecutive_deletes": 0},
+        {"source": [], "target": [], "max_consecutive_deletes": 4},
         {"source": "nope", "target": []},
         {"target": []},
     ]
@@ -256,6 +361,12 @@ def main() -> int:
         {"source": [0, 2_147_483_647], "target": [0, 2_147_483_647]},
     )
     check("0 与 2147483647 为合法值", status == 200)
+
+    status, data = request("POST", f"{API_URL}/diff", {"source": [1], "target": [1]})
+    check(
+        "未启用新模式时响应保持旧接口（无版本字段）",
+        status == 200 and "max_consecutive_deletes" not in data,
+    )
 
     # 6. DIFF_LIMIT：802 > 800
     status, data = request(

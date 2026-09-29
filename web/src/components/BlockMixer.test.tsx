@@ -281,4 +281,16 @@ describe("纯插入/纯删除块的界面", () => {
     fireEvent.click(screen.getByTestId("block-checkbox"));
     expect(screen.getByTestId("mixed-sequence")).toHaveTextContent("1, 2");
   });
+
+  it("约束版本的剩余请求沿用同一最大连续删除限制", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok(1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <BlockMixer result={rewrite} stale={false} maxConsecutiveDeletes={2} />
+    );
+    await flush();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_consecutive_deletes).toBe(2);
+    expect(screen.getByTestId("mixer-limit")).toHaveTextContent("最大连续删除 2 个镜头");
+  });
 });

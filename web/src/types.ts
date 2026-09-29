@@ -12,9 +12,13 @@ export interface DiffResult {
   length_source: number;
   length_target: number;
   alignment: AlignmentRow[];
+  max_consecutive_deletes?: 1 | 2 | 3;
 }
 
-export type ErrorCode = "INVALID_INPUT" | "DIFF_LIMIT";
+export type ErrorCode =
+  | "INVALID_INPUT"
+  | "DIFF_LIMIT"
+  | "CONSTRAINED_DIFF_INFEASIBLE";
 
 export interface Issue {
   loc: (string | number)[];

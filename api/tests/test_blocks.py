@@ -5,11 +5,17 @@ import random
 import pytest
 
 from app.blocks import Block, mixed_replay, split_blocks
-from app.myers import bounded_myers
+from app.myers import bounded_myers, constrained_shortest
 
 
 def align(a, b):
     res = bounded_myers(a, b)
+    assert res is not None
+    return res[1]
+
+
+def constrained_align(a, b, limit):
+    res = constrained_shortest(a, b, limit)
     assert res is not None
     return res[1]
 
@@ -160,3 +166,30 @@ def test_randomized_block_spans_and_endpoint_invariants(seed):
             ) + sum(
                 blk.target_end - blk.target_start for blk in blocks if blk.id in chosen
             ) == len(seq)
+
+
+def test_constrained_insert_breaker_blocks_remain_replayable():
+    # limit=2 迫使插入目标 1 分隔两段删除；插入与两侧删除由“原最终脚本”的
+    # 操作位置形成两个删除块和一个插入块，任一审批子集仍一次性按原坐标重放。
+    a, b = [1, 2, 3, 4], [1]
+    rows = constrained_align(a, b, 2)
+    assert [op for op, _, _ in rows] == [
+        "delete",
+        "delete",
+        "insert",
+        "delete",
+        "delete",
+    ]
+    blocks = split_blocks(rows, len(a), len(b))
+    # 插入打断的是最终脚本中的连续 delete 行；由于插入本身也是非 keep，
+    # 现有分块规则仍把整段非 keep 脚本归为同一个不可拆分块。
+    assert [blk.id for blk in blocks] == [0]
+    assert (blocks[0].source_start, blocks[0].source_end) == (0, 4)
+    assert (blocks[0].target_start, blocks[0].target_end) == (0, 1)
+    assert_stable_spans(a, b, rows, blocks)
+    assert_replay_endpoints(a, b, rows, blocks)
+
+    # 整块不批准精确等于 source；整块批准精确等于 target。不存在可单独批准
+    # “打断用插入”的部分审批，这与不可拆分差异块规则一致。
+    assert mixed_replay(a, b, rows, frozenset(), blocks) == a
+    assert mixed_replay(a, b, rows, frozenset({0}), blocks) == b

@@ -3,6 +3,7 @@ import type { ApiError } from "../types";
 const TITLES: Record<string, string> = {
   INVALID_INPUT: "输入不合法（INVALID_INPUT）",
   DIFF_LIMIT: "超出差分上限（DIFF_LIMIT）",
+  CONSTRAINED_DIFF_INFEASIBLE: "无满足连续删除限制的脚本（CONSTRAINED_DIFF_INFEASIBLE）",
 };
 
 export function ErrorBanner({ error }: { error: ApiError }) {

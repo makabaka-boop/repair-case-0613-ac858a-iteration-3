@@ -106,6 +106,25 @@ button.link {
   color: #374151;
 }
 
+.mode {
+  border: 1px solid #dfe3ea;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.mode legend {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.mode label {
+  margin-right: 18px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
 .actions {
   margin: 18px 0;
 }

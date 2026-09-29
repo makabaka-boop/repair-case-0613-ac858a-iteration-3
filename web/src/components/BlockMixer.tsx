@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MaxConsecutiveDeletes } from "../api";
 import type { ApiError, DiffResult } from "../types";
 import { postDiffValues } from "../api";
 import {
@@ -14,6 +15,8 @@ interface Props {
   result: DiffResult;
   /** 原始输入在最近一次成功计算后被改动：撤销选择与可下载混合序列。 */
   stale: boolean;
+  /** 生成当前差异块的脚本版本；剩余轨迹必须沿用同一连续删除限制。 */
+  maxConsecutiveDeletes?: MaxConsecutiveDeletes;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -41,7 +44,11 @@ function describe(block: DiffBlock): string {
   ]} · ${parts.join("，")} · ${sourceSpan} / ${targetSpan}`;
 }
 
-export function BlockMixer({ result, stale }: Props) {
+export function BlockMixer({
+  result,
+  stale,
+  maxConsecutiveDeletes = null,
+}: Props) {
   const blocks = useMemo(() => splitBlocks(result), [result]);
   const allIds = useMemo(() => new Set(blocks.map((b) => b.id)), [blocks]);
 
@@ -102,7 +109,7 @@ export function BlockMixer({ result, stale }: Props) {
     setRemainingError(null);
     setRemainingLoading(true);
     const timer = window.setTimeout(() => {
-      postDiffValues(mixed, targetValues)
+      postDiffValues(mixed, targetValues, maxConsecutiveDeletes)
         .then((res) => {
           if (requestSeq.current !== seq) return; // 迟到响应：丢弃，不覆盖新选择
           setRemaining(res);
@@ -118,7 +125,7 @@ export function BlockMixer({ result, stale }: Props) {
         });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [mixed, targetValues, stale, blocks.length]);
+  }, [mixed, targetValues, stale, blocks.length, maxConsecutiveDeletes]);
 
   const download = () => {
     if (stale) return;
@@ -155,6 +162,11 @@ export function BlockMixer({ result, stale }: Props) {
       <p className="muted">
         连续的非 keep 步骤按两侧零基边界归为不可拆分块；删除与同一边界的插入同属一块。
         混合序列始终以原 source 坐标一次性重放，不选=source，全选=target。
+        {maxConsecutiveDeletes !== null && (
+          <span data-testid="mixer-limit">
+            当前脚本版本：最大连续删除 {maxConsecutiveDeletes} 个镜头。
+          </span>
+        )}
       </p>
 
       {stale && (

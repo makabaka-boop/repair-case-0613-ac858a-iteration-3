@@ -336,3 +336,58 @@ test.describe("差异块批准与混合镜头序列", () => {
     );
   });
 });
+
+test.describe("最大连续删除限制模式", () => {
+  async function setLimit(page: Page, limit: 1 | 2 | 3) {
+    await page.getByTestId(`limit-${limit}`).check();
+    await page.getByTestId("compare").click();
+  }
+
+  test("用插入打断删除；块版本、审批状态与下载内容一致", async ({ page }) => {
+    await fillList(page, "source-editor", [1, 2, 3, 4]);
+    await fillList(page, "target-editor", [1]);
+    await setLimit(page, 2);
+
+    await expect(page.getByTestId("distance")).toContainText("5");
+    const rows = page.getByTestId("alignment-row");
+    await expect(rows).toHaveCount(5);
+    const ops = await rows.locator('[data-testid="row-type"]').allTextContents();
+    expect(ops).toEqual(["删除（源）", "删除（源）", "插入（目标）", "删除（源）", "删除（源）"]);
+    await expect(page.getByTestId("mixer-limit")).toContainText("最大连续删除 2");
+
+    const blocks = page.getByTestId("diff-block");
+    await expect(blocks).toHaveCount(1);
+    await page.getByTestId("accept-all").click();
+    await expect(page.getByTestId("mixed-sequence")).toHaveText("1");
+    expect(await page.getByTestId("remaining-distance").textContent()).toBe("0");
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("download-mixed").click(),
+    ]);
+    expect(download.suggestedFilename()).toBe("mixed-shots.txt");
+    expect(await streamText(download)).toBe("1\n");
+  });
+
+  test("完全删除超过限制且无插入可打断时返回明确无解，旧块不继续提交", async ({ page }) => {
+    // 先在旧模式计算一个可批准块。
+    await fillList(page, "source-editor", [1, 2, 3]);
+    await fillList(page, "target-editor", [1]);
+    await page.getByTestId("compare").click();
+    await expect(page.getByTestId("block-mixer")).toBeVisible();
+
+    // 切换为限制模式但不改输入：stale 状态撤销旧选择，不发送旧块审批。
+    await page.getByTestId("limit-2").check();
+    await expect(page.getByTestId("mixer-stale")).toBeVisible();
+    await expect(page.getByTestId("download-mixed")).toBeDisabled();
+
+    // 目标改为空：三个删除无法被插入/keep 打断，确实无合法脚本。
+    await fillList(page, "target-editor", []);
+    await page.getByTestId("compare").click();
+    const banner = page.getByTestId("error-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText("CONSTRAINED_DIFF_INFEASIBLE");
+    await expect(page.getByTestId("result-view")).toHaveCount(0);
+    await expect(page.getByTestId("block-mixer")).toHaveCount(0);
+  });
+});
