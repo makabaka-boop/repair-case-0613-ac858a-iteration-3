@@ -1,0 +1,1 @@
+{"root":["./src/App.test.tsx","./src/App.tsx","./src/api.ts","./src/blocks.test.ts","./src/blocks.ts","./src/main.tsx","./src/types.ts","./src/components/BlockMixer.test.tsx","./src/components/BlockMixer.tsx","./src/components/ErrorBanner.tsx","./src/components/NumberListEditor.tsx","./src/components/ResultView.test.tsx","./src/components/ResultView.tsx"],"version":"5.6.3"}

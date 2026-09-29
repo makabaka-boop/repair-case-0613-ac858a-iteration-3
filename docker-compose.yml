@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: ./api
+    # 宿主端口可由环境变量覆盖。
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+  # 一次性验收服务：对真实运行的 api 容器发起端到端验收，通过即退出 0。
+  verify:
+    build:
+      context: ./api
+    command: ["python", "verify/acceptance.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      API_URL: http://api:8000
+      WEB_URL: http://web:80
+    restart: "no"
